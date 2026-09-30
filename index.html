@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Legends Shootout</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Legends">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1F2026">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;900&display=swap">
+<style>
+:root{--bg:#F3F2EF;--ink:#1B1B1D;--muted:#5E5E63;--red:#CE1141;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121214;--ink:#F1EFEA;--muted:#A3A3A8;--red:#E0294F}}
+:root[data-theme="dark"]{--bg:#121214;--ink:#F1EFEA;--muted:#A3A3A8;--red:#E0294F}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-size:18px;display:flex;justify-content:center;padding:12px;touch-action:manipulation}
+.app{width:100%;max-width:420px}
+h1{font-size:30px;font-weight:900;margin:2px 0 8px;color:var(--red);line-height:1.1}
+.hud{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;margin-bottom:8px;color:var(--muted)}
+.hud>div:last-child{text-align:right}
+.hud>div:nth-child(2){text-align:center}
+.hud b{display:block;font-size:34px;font-weight:900;color:var(--ink);line-height:1.1}
+.hud .on,.hud .on b{color:var(--red)}
+.wrap{position:relative}
+canvas#c{width:100%;height:auto;display:block;border-radius:12px;-webkit-tap-highlight-color:transparent}
+.ov{position:absolute;inset:0;border-radius:12px;background:rgba(10,10,12,.92);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:14px;gap:10px;overflow:auto}
+.ov h2{margin:0;font-size:30px;font-weight:900;line-height:1.1}
+.ov p{margin:0;font-size:19px;line-height:1.3}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%}
+.card{font:inherit;color:#fff;background:rgba(255,255,255,.08);border:2px solid transparent;border-radius:10px;padding:6px 2px 8px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+.card canvas{width:52px;height:auto}
+.card span{font-size:17px;font-weight:700;line-height:1.1}
+.card[aria-pressed="true"]{border-color:#fff;background:rgba(255,255,255,.18)}
+.card:focus-visible,button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+.desc{min-height:2.6em;color:#ddd}
+.btns{display:flex;gap:10px;width:100%;justify-content:center}
+button.b{font:inherit;font-weight:900;font-size:21px;background:#CE1141;color:#fff;border:0;border-radius:10px;padding:8px 26px;cursor:pointer}
+button.b.alt{background:#3A3B42}
+button.big{width:100%;padding:14px}
+button.big small{display:block;font-size:17px;font-weight:500;opacity:.85}
+.hint{color:var(--muted);text-align:center;margin:8px 0 0}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Legends Shootout</h1>
+  <div class="hud">
+    <div id="l1"><span id="n1">You</span><b id="s1">0</b></div>
+    <div><span id="nm">Round</span><b id="rd">1/10</b></div>
+    <div id="l2"><span id="n2">AI</span><b id="s2">0</b></div>
+  </div>
+  <div class="wrap">
+    <canvas id="c" width="360" height="560" aria-label="Basketball court"></canvas>
+    <div class="ov" id="ov"></div>
+  </div>
+  <p class="hint">Tap the court or press Space to shoot when the marker is in the green</p>
+</div>
+<script>
+const F='"Barlow Condensed","Arial Narrow",sans-serif';
+const P=[
+{id:'mj',name:'Michael Jordan',n:'23',c:'#CE1141',t:'#fff',s:'#8A5A3C',d:'Balanced: a slightly wider window from every spot.'},
+{id:'lbj',name:'LeBron James',n:'23',c:'#6B3FA0',t:'#FDB927',s:'#7A4B2E',d:'Power: a much wider window close to the hoop.'},
+{id:'sc',name:'Stephen Curry',n:'30',c:'#1D6FE0',t:'#FFC72C',s:'#B07A55',d:'Deep range: a wider window on three-pointers.'},
+{id:'lb',name:'Larry Bird',n:'33',c:'#1E8F4E',t:'#fff',s:'#E8B896',d:'Steady: a slower meter makes timing easier.'},
+{id:'kb',name:'Kobe Bryant',n:'24',c:'#F2B824',t:'#552583',s:'#8A5A3C',d:'Killer instinct: the streak bonus starts after your first make.'},
+{id:'mag',name:'Magic Johnson',n:'32',c:'#F2F2F2',t:'#552583',s:'#6F4429',d:'Playmaker: a wider window while you are on a streak.'}
+];
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const W=360,H=560,HX=292,HY=210,GY=470,BX=122,ROUNDS=10;
+const $=id=>document.getElementById(id);
+let mode='1p',step=1,pl=[0,1],score=[0,0],streak=[0,0],turn=0,round=1;
+let st='menu',sx=100,mt=0,p=1,prev=1,turnT=0,aiT=.5,readyAt=0,shot=null,pops=[],bx=0,by=0,last=0,autoT=0,time=60,best=0;
+const loadBest=id=>{try{return +localStorage.getItem('lsbest_'+id)||0}catch(e){return 0}};
+const C=()=>P[pl[turn]];
+const isAI=()=>mode==='1p'&&turn===1;
+const lab=t=>mode==='2p'?'Player '+(t+1):(t?'AI':'You');
+
+function drawPlayer(g,x,y,q){
+  g.fillStyle='#111';g.fillRect(x-9,y-26,7,26);g.fillRect(x+2,y-26,7,26);
+  g.fillStyle=q.c;g.fillRect(x-13,y-62,26,38);
+  g.fillStyle=q.t;g.font='900 16px '+F;g.textAlign='center';g.fillText(q.n,x,y-38);
+  g.fillStyle=q.s;g.beginPath();g.arc(x,y-74,9,0,7);g.fill();
+  g.strokeStyle=q.s;g.lineWidth=5;g.beginPath();g.moveTo(x+12,y-56);g.lineTo(x+14,y-66);g.stroke();
+}
+function paintAvatars(){document.querySelectorAll('.card canvas').forEach(c=>{const g=c.getContext('2d');g.clearRect(0,0,64,92);drawPlayer(g,32,90,P[c.dataset.i])})}
+function showOv(h){const o=$('ov');o.innerHTML=h;o.style.display='flex';paintAvatars()}
+function hideOv(){$('ov').style.display='none'}
+
+function screenMode(){
+  st='menu';
+  showOv('<h2>Choose mode</h2><button class="b big" data-a="m0">Solo Challenge<small>60 seconds, beat your best score</small></button><button class="b big" data-a="m1">1 Player vs AI<small>You vs the AI, taking turns</small></button><button class="b big" data-a="m2">2 Players<small>Pass and play, taking turns</small></button>');
+  upd();
+}
+function screenPick(){
+  const title=mode==='solo'?'Choose your player':mode==='1p'?(step===1?'Choose your player':'Choose your AI opponent'):'Player '+step+': choose your player';
+  const cards=P.map((q,i)=>`<button class="card" data-a="pick" data-i="${i}" aria-pressed="${pl[step-1]===i}"><canvas width="64" height="92" data-i="${i}"></canvas><span>${q.name}</span></button>`).join('');
+  showOv(`<h2>${title}</h2><div class="grid">${cards}</div><p class="desc" id="desc">${P[pl[step-1]].name}: ${P[pl[step-1]].d}</p><div class="btns"><button class="b alt" data-a="back">Back</button><button class="b" data-a="next">${step===(mode==='solo'?1:2)?'Play':'Next'}</button></div>`);
+}
+function screenEnd(){
+  st='end';
+  if(mode==='solo'){
+    const nw=score[0]>best;
+    if(nw){best=score[0];try{localStorage.setItem('lsbest_'+P[pl[0]].id,best)}catch(e){}}
+    showOv(`<h2>Final buzzer</h2><p>${P[pl[0]].name} scored ${score[0]}. Best: ${best}.${nw?' New record!':''}</p><div class="btns"><button class="b" data-a="again">Play again</button><button class="b alt" data-a="menu">Main menu</button></div>`);
+    upd();return;
+  }
+  const a=score[0],b=score[1];
+  const res=a===b?"It's a tie!":(mode==='1p'?(a>b?'You win!':'AI wins!'):'Player '+(a>b?1:2)+' wins!');
+  showOv(`<h2>${res}</h2><p>${P[pl[0]].name} ${a} - ${b} ${P[pl[1]].name}</p><div class="btns"><button class="b" data-a="again">Play again</button><button class="b alt" data-a="menu">Main menu</button></div>`);
+  upd();
+}
+$('ov').addEventListener('click',e=>{
+  const b=e.target.closest('[data-a]');if(!b)return;
+  const a=b.dataset.a;
+  if(a==='m0'||a==='m1'||a==='m2'){mode=a==='m0'?'solo':a==='m1'?'1p':'2p';step=1;screenPick()}
+  else if(a==='pick'){
+    const i=+b.dataset.i;pl[step-1]=i;
+    document.querySelectorAll('.card').forEach(c=>c.setAttribute('aria-pressed',+c.dataset.i===i));
+    $('desc').textContent=P[i].name+': '+P[i].d;
+  }
+  else if(a==='back'){if(step===2){step=1;screenPick()}else screenMode()}
+  else if(a==='next'){if(step<(mode==='solo'?1:2)){step++;screenPick()}else startGame()}
+  else if(a==='again')startGame();
+  else if(a==='menu')screenMode();
+});
+
+function upd(){
+  const so=mode==='solo';
+  $('n1').textContent=so?'Score':lab(0);$('n2').textContent=so?'Best':lab(1);
+  $('s1').textContent=score[0];$('s2').textContent=so?best:score[1];
+  $('nm').textContent=so?'Time':'Round';
+  $('rd').textContent=so?Math.ceil(time):round+'/'+ROUNDS;
+  const live=st==='aim'||st==='shot'||st==='ready';
+  $('l1').className=live&&!so&&turn===0?'on':'';$('l2').className=live&&!so&&turn===1?'on':'';
+}
+function newSpot(){sx=50+Math.random()*170}
+function zone(){
+  const d=HX-sx,q=C().id;let z=.09-(d-82)/150*.04;
+  if(q==='mj')z*=1.08;
+  if(q==='lbj'&&d<140)z*=1.4;
+  if(q==='sc'&&d>170)z*=1.4;
+  if(q==='mag'&&streak[turn]>0)z*=1.25;
+  return z;
+}
+function beginTurn(){
+  mt=0;p=1;prev=1;turnT=0;aiT=.5+(Math.random()+Math.random()-1)*.2;
+  st=mode==='solo'?'aim':'ready';autoT=isAI()?1.2:.7;readyAt=performance.now()+400;upd();
+}
+function startGame(){
+  score=[0,0];streak=[0,0];round=1;turn=0;pops=[];shot=null;time=60;best=mode==='solo'?loadBest(P[pl[0]].id):0;newSpot();
+  hideOv();beginTurn(false);
+}
+function advance(){
+  if(mode==='solo'){if(time<=0){screenEnd();return}newSpot();beginTurn();return}
+  if(turn===0)turn=1;
+  else if(round>=ROUNDS){screenEnd();return}
+  else{round++;turn=0;newSpot()}
+  beginTurn(mode==='2p');
+}
+function shoot(f){
+  if(st==='ready'){if(mode==='2p'&&performance.now()>readyAt){st='aim';upd()}return}
+  if(st!=='aim'||(isAI()&&!f))return;
+  const e=Math.abs(p-.5),z=zone();
+  const kind=e<z?'swish':(e<z*2&&Math.random()<.4)?'rim':'miss';
+  shot={t:0,dur:.85,x0:sx+14,y0:GY-72,kind,pts:(HX-sx)>170?3:2,side:Math.random()<.5?-1:1,ph:'fly',at:0};
+  bx=sx+14;by=GY-72;st='shot';
+}
+function pop(text,x,y,c){pops.push({text,x,y,c,l:1})}
+function resolve(s){
+  const t=turn;
+  if(s.kind!=='miss'){
+    const bonus=streak[t]>=(C().id==='kb'?1:2)?1:0,gain=s.pts+bonus;
+    score[t]+=gain;streak[t]++;
+    pop((s.kind==='swish'?'Swish! +':'Bucket! +')+gain,HX-50,HY-40,'#7CFC9A');
+  }else{streak[t]=0;pop('Miss',HX-40,HY-40,'#FF8A8A')}
+  s.ph='after';s.at=0;s.vy=-120;s.vx=s.side*140;
+  s.tx=HX+(s.kind==='miss'?s.side*30:s.kind==='rim'?s.side*12:0);
+  bx=s.tx;by=HY;
+}
+function update(dt){
+  if(mode==='solo'&&(st==='aim'||st==='shot')){
+    time=Math.max(0,time-dt);upd();
+    if(time<=0&&st==='aim'){screenEnd();return}
+  }
+  if(st==='ready'&&mode==='1p'){autoT-=dt;if(autoT<=0){st='aim';upd()}}
+  if(st==='aim'){
+    mt+=dt*(C().id==='lb'?1.1:1.5);prev=p;p=Math.abs(((mt%2)+2)%2-1);turnT+=dt;
+    if(isAI()&&turnT>.7&&(prev-aiT)*(p-aiT)<=0)shoot(true);
+  }
+  if(st==='shot'){
+    const s=shot;
+    if(s.ph==='fly'){
+      s.t+=dt;const u=Math.min(1,s.t/s.dur);
+      const tx=HX+(s.kind==='miss'?s.side*30:s.kind==='rim'?s.side*12:0);
+      bx=s.x0+(tx-s.x0)*u;by=s.y0+(HY-s.y0)*u-130*4*u*(1-u);
+      if(u>=1){resolve(s);upd()}
+    }else{
+      s.at+=dt;
+      if(s.kind==='miss'){s.vy+=900*dt;bx+=s.vx*dt;by+=s.vy*dt}
+      else{by=HY+450*s.at*s.at;bx=s.tx}
+      if(s.at>.6){shot=null;advance()}
+    }
+  }
+  pops.forEach(o=>{o.y-=30*dt;o.l-=dt*.9});pops=pops.filter(o=>o.l>0);
+}
+function ball(x,y){
+  ctx.fillStyle='#E8772E';ctx.beginPath();ctx.arc(x,y,11,0,7);ctx.fill();
+  ctx.strokeStyle='#5A2A0C';ctx.lineWidth=1.3;
+  ctx.beginPath();ctx.moveTo(x-11,y);ctx.lineTo(x+11,y);ctx.moveTo(x,y-11);ctx.lineTo(x,y+11);ctx.stroke();
+  ctx.beginPath();ctx.arc(x,y,11,0,7);ctx.stroke();
+}
+function draw(){
+  ctx.fillStyle='#1F2026';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#A8672D';ctx.fillRect(0,GY,W,H-GY);
+  ctx.strokeStyle='rgba(0,0,0,.18)';ctx.lineWidth=1;
+  for(let x=0;x<W;x+=30){ctx.beginPath();ctx.moveTo(x,GY);ctx.lineTo(x,H);ctx.stroke()}
+  ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.setLineDash([6,6]);
+  ctx.beginPath();ctx.moveTo(BX,GY);ctx.lineTo(BX,H-70);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#fff';ctx.font='700 14px '+F;ctx.textAlign='center';
+  ctx.fillText('3-point line',BX-46,GY+22);
+  const live=st==='aim'||st==='shot'||st==='ready';
+  if(live){
+    ctx.textAlign='left';ctx.font='900 20px '+F;ctx.fillStyle='#fff';ctx.fillText((mode==='solo'?'':lab(turn)+': ')+C().name,12,26);
+    ctx.font='700 17px '+F;ctx.fillStyle='#F2C230';
+    ctx.fillText(mode==='solo'||st==='ready'?'':isAI()?'AI is shooting...':mode==='1p'?'Your turn':lab(turn)+"'s turn",12,48);
+    ctx.textAlign='center';
+  }
+  ctx.fillStyle='#EDEDED';ctx.fillRect(HX+28,HY-58,6,66);
+  ctx.strokeStyle='rgba(255,255,255,.7)';ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){ctx.beginPath();ctx.moveTo(HX-22+i*11,HY);ctx.lineTo(HX-14+i*7,HY+34);ctx.stroke()}
+  ctx.beginPath();ctx.moveTo(HX-14,HY+17);ctx.lineTo(HX+14,HY+17);ctx.stroke();
+  ctx.strokeStyle='#FF5A3C';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(HX-22,HY);ctx.lineTo(HX+28,HY);ctx.stroke();
+  drawPlayer(ctx,sx,GY,C());
+  if(st==='shot'&&shot)ball(bx,by);else ball(sx+14,GY-72);
+  const mx=40,mw=280,my=524,z=zone();
+  ctx.fillStyle='#3A3B42';ctx.fillRect(mx,my,mw,14);
+  ctx.fillStyle='#F2C230';ctx.fillRect(mx+mw*(.5-z*2),my,mw*z*4,14);
+  ctx.fillStyle='#3DDC6B';ctx.fillRect(mx+mw*(.5-z),my,mw*z*2,14);
+  ctx.fillStyle='#fff';ctx.fillRect(mx+p*mw-2,my-6,4,26);
+  ctx.font='700 15px '+F;ctx.fillStyle='#ddd';
+  ctx.fillText('Streak: '+streak[turn],W/2,my-14);
+  pops.forEach(o=>{ctx.globalAlpha=Math.max(0,o.l);ctx.fillStyle=o.c;ctx.font='900 26px '+F;ctx.fillText(o.text,o.x,o.y);ctx.globalAlpha=1});
+  if(st==='ready'){
+    ctx.fillStyle='rgba(10,10,12,.85)';ctx.fillRect(30,230,300,120);
+    ctx.fillStyle='#fff';ctx.font='900 36px '+F;ctx.fillText(lab(turn)+': '+C().name,W/2,280);
+    ctx.fillStyle='#F2C230';ctx.font='700 22px '+F;ctx.fillText(mode==='2p'?'Tap to start your shot':isAI()?'AI is about to shoot':'Your turn to shoot',W/2,320);
+  }
+}
+function loop(ts){
+  const dt=Math.min(.05,(ts-last)/1000||0);last=ts;
+  update(dt);draw();requestAnimationFrame(loop);
+}
+cv.addEventListener('pointerdown',e=>{e.preventDefault();shoot()});
+document.addEventListener('keydown',e=>{if(e.code==='Space'&&$('ov').style.display==='none'){e.preventDefault();shoot()}});
+screenMode();
+if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(paintAvatars);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
